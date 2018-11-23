@@ -16,10 +16,9 @@
 
 struct block_meta
 {
-    size_t size;
+    size_t size, offset;
     struct block_meta *next, *prev;
-    char *data_ptr;                         // char * size useful in arithmetic
-    int free;                               // (free = 1) : block is free
+    int free;     // (free = 1) : block is free
 };
 
 #define SEGMENT_SIZE 1024
@@ -39,7 +38,7 @@ void *realloc(void *ptr, size_t size);
 
 /* ---------- HELPERS ---------- */
 
-static size_t find_offset(void *block_ptr);
+static size_t find_offset(char *start);
 static int extend_segment(size_t size);
 static struct block_meta *find_free(size_t size);
 static void insert_block(struct block_meta *block, size_t size);
