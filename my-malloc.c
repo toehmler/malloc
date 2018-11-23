@@ -37,14 +37,34 @@ void *malloc(size_t size)
 
 		tail_block = head_block;
 
-		segment_free -= META_SIZE + head_offset + head_block->size;
+		segment_free -= META_SIZE + head_offset + size;
 		
-		return (char *) head_block->data_ptr;
+		return (void *) head_block->data_ptr;
 	} 
-	else
+
+	struct block_meta *free_block = find_free(size);
+
+	if (free_block)
 	{
-		return NULL; // testing only
+		insert_block(free_block, size);
+		return (void *) free_block->data_ptr;
 	}
+
+	if (!append_block(size))
+	{
+		void *new_block = (void *)(tail_block->data_ptr + tail_block->size);
+		size_t new_offset = find_offset(new_block);
+
+		if (!extend_segment(size + new_offset))
+		{
+			return NULL; //sbrk error
+		}
+
+		append_block(size);
+		segment_free -= META_SIZE + new_offset + size;
+	}
+	
+	return (void *) tail_block->data_ptr;
 
 }
 /*
@@ -68,12 +88,16 @@ void *realloc(void *ptr, size_t size)
 
 /* ---------- HELPERS ---------- */
 
-static size_t find_offset(struct block_meta *block)
+static size_t find_offset(void *block_ptr)
 {
 	/* find size of offset (in bytes) for a block */
 
-	char *start = (char *)block + META_SIZE;
+	char *start = (char *)block_ptr + META_SIZE;
 	size_t offset = ALIGNMENT - (atoi(start) % ALIGNMENT);
+	if (offset == 16)
+	{
+		return 0;
+	}
 	return offset;
 }
 
@@ -95,6 +119,76 @@ static int extend_segment(size_t size)
 		}
 		segment_free += SEGMENT_SIZE;
 	}
+
+	return 1;
+}
+
+static struct block_meta *find_free(size_t size)
+{
+	/* searches for freed block of large enough size
+	 * returns ptr to block if found
+	 * returns NULL otherwise */
+
+	struct block_meta *current = head_block;
+	while (current && !(current->free && current->size >= size))
+	{
+		current = current->next;
+	}
+	return current;
+
+}
+
+static void insert_block(struct block_meta *block, size_t size)
+{
+	/* replaces freed block with new block size
+	 * creates new block if sufficent memory remains */
+
+	ssize_t free_mem = block->size - size;
+	void *request_block = block->data_ptr + size;
+	size_t request_offset = find_offset(request_block);
+	ssize_t request_size = free_mem - (META_SIZE + request_offset);
+
+	block->size = size;
+	block->free = 0;
+
+	if (request_size > 0)
+	{
+		struct block_meta *new_block = request_block;
+		new_block->size = (size_t) request_size;
+		new_block->next = block->next;
+		new_block->prev = block;
+		new_block->data_ptr = (char *)request_block + META_SIZE + request_offset;
+		new_block->free = 1;
+
+		block->next->prev = new_block;
+		block->next = new_block;
+	}
+}
+
+static int append_block(size_t size)
+{
+	/* appends a new block to end of list
+	 * returns 0 if insufficent segment memory
+	 * returns 1 otherwise (block appended successfully) */
+
+	void *request_block = tail_block->data_ptr + tail_block->size;
+	size_t request_offset = find_offset(request_block);
+
+	if ((segment_free - (META_SIZE + request_offset + size)) < 0)
+	{
+		return 0;
+	} 
+	
+	struct block_meta *new_block = request_block;
+	new_block->next = NULL;
+	new_block->prev = tail_block;
+	new_block->data_ptr = (char *) request_block + META_SIZE + request_offset;
+	new_block->free = 0;
+
+	tail_block->next = new_block;
+	tail_block = new_block;
+
+	segment_free -= META_SIZE + request_offset + size;
 
 	return 1;
 }

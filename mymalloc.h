@@ -39,7 +39,10 @@ void *realloc(void *ptr, size_t size);
 
 /* ---------- HELPERS ---------- */
 
-static size_t find_offset(struct block_meta *block);
+static size_t find_offset(void *block_ptr);
 static int extend_segment(size_t size);
+static struct block_meta *find_free(size_t size);
+static void insert_block(struct block_meta *block, size_t size);
+static int append_block(size_t size);
 
 #endif
