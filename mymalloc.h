@@ -28,9 +28,11 @@ static truct block_meta *tail_block = NULL;
 static size_t segment_free = 0;
 
 void *malloc(size_t size);
+/*
 void free(void *ptr);
 void *calloc(size_t nmemb, size_t size);
 void *realloc(void *ptr, size_t size);
+*/
 
 /* ---------- HELPERS ---------- */
 

@@ -34,6 +34,13 @@ void *malloc(size_t size)
 		head_block->data_ptr = ((char *) head_block + META_SIZE + head_offset);
 		head_block->free = 0;
 
+		tail_block = head_block;
+
+		segment_free -= META_SIZE + head_offset + head_block->size;
+
+
+		
+
 		return (char *) head_block->data_ptr;
 	} 
 	else
