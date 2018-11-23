@@ -1,12 +1,6 @@
-CFLAGS=-g -Wall -pedantic 
-
-PROGS=my-malloc.so
-
-all: $(PROGS)
-
 my-malloc.so: my-malloc.c
-	gcc $(CFLAGS) -rdynamic -shared -fPIC -o $@ $^
+	gcc -g -Wall -pedantic -rdynamic -shared -fPIC -o my-malloc.so my-malloc.c
 
-.PHONY: clean
+.phony: clean
 clean:
-	rm -f * $(PROGS)
+	rm -rf my-malloc.so
