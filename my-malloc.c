@@ -7,6 +7,7 @@
 
  #include "mymalloc.h"
 
+
 void *malloc(size_t size) 
 {
 
@@ -37,10 +38,7 @@ void *malloc(size_t size)
 		tail_block = head_block;
 
 		segment_free -= META_SIZE + head_offset + head_block->size;
-
-
 		
-
 		return (char *) head_block->data_ptr;
 	} 
 	else
@@ -75,7 +73,7 @@ static size_t find_offset(struct block_meta *block)
 	/* find size of offset (in bytes) for a block */
 
 	char *start = (char *)block + META_SIZE;
-	size_t offset = ALIGNMENT - (start % ALIGNMENT);
+	size_t offset = ALIGNMENT - (atoi(start) % ALIGNMENT);
 	return offset;
 }
 
@@ -93,9 +91,9 @@ static int extend_segment(size_t size)
 		request_break = sbrk(SEGMENT_SIZE);
 		if (request_break == (void *) -1)
 		{
-			return NULL; //sbrk error
+			return 0; //sbrk error
 		}
-		segment_free += SEGMENT_SIZE:
+		segment_free += SEGMENT_SIZE;
 	}
 
 	return 1;
