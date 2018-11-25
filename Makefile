@@ -7,5 +7,5 @@ clean:
 
 # fixes VM shared folder permissions error
 permissions:
-	chmod 777 ../assignment6
+	chmod 777 ../assignment3
 	chmod 777 *
