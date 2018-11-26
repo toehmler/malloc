@@ -17,9 +17,10 @@ void *malloc(size_t size)
 
 	if (!head_block) // first call
 	{
+		
 		// init head_block to current location or prog break
 		char *start = sbrk(0);
-		size_t head_offset = find_offset((char *)start);
+		size_t head_offset = find_offset(start);
 
 		if (!extend_segment(size + head_offset))
 		{
@@ -82,12 +83,12 @@ void free(void *ptr)
 	struct block_meta *next_block = free_block->next;
 	struct block_meta *prev_block = free_block->prev;
 
-	if (next_block->free)
+	if (next_block && next_block->free)
 	{
 		merge_free_blocks(free_block, next_block);
 	}
 	
-	if (prev_block->free)
+	if (prev_block && prev_block->free)
 	{
 		merge_free_blocks(prev_block, free_block);
 	}
@@ -125,12 +126,15 @@ void *realloc(void *ptr, size_t size)
 		size_t request_offset = find_offset(request_start);
 		diff += block->garbage;
 		block->size = size;
-		if ((diff - (request_offset + META_SIZE)) >= MIN_SEGMENT_SIZE)
+		ssize_t new_size = diff - (request_offset + META_SIZE);
+
+		if (new_size >= MIN_SEGMENT_SIZE)
 		{
-			insert_free_block((size_t) diff, block);
+			insert_free_block((size_t) new_size, block);
 			block->garbage = 0;
 		} 
-		else {
+		else 
+		{
 			block->garbage = diff;
 		}
 		
@@ -141,7 +145,7 @@ void *realloc(void *ptr, size_t size)
 		// check for space in garbage 
 		if ((block->size + block->garbage) >= size)
 		{
-			block->garbage = size - block->size;
+			block->garbage -= size - block->size;
 			block->size = size;
 			return block + 1;
 		}
@@ -171,16 +175,16 @@ void *realloc(void *ptr, size_t size)
 				block->size = size;
 				char *request_start = (char *) ptr + size;
 				size_t request_offset = find_offset(request_start);
-				size_t rem_mem = total_size - (size + request_offset + META_SIZE);
+				ssize_t rem_mem = total_size - (size + request_offset + META_SIZE);
 
 				if (rem_mem >= MIN_SEGMENT_SIZE)
 				{
-					insert_free_block(rem_mem, block);
+					insert_free_block((size_t) rem_mem, block);
 					block->garbage = 0;
 				} 
 				else 
 				{
-					block->garbage = rem_mem;
+					block->garbage = total_size - size;
 				}
 
 				return block + 1;
@@ -211,7 +215,7 @@ void *realloc(void *ptr, size_t size)
 static size_t find_offset(char *start)
 {
 	/* find size of offset (in bytes) for a block */
-	size_t offset = ALIGNMENT - (atoi(start + META_SIZE) % ALIGNMENT);
+	size_t offset = ALIGNMENT - ((intptr_t)(start + META_SIZE) % ALIGNMENT);
 	if (offset == 16)
 	{
 		return 0;
@@ -231,7 +235,7 @@ static int extend_segment(size_t size)
 	for (int i = factor; i > 0; i--)
 	{
 		request_break = sbrk(SEGMENT_SIZE);
-		if (request_break == (void *)-1)
+		if (request_break == (void *) -1)
 		{
 			return 0; //sbrk error
 		}
@@ -260,9 +264,9 @@ static void insert_block(struct block_meta *block, size_t size)
 	/* replaces freed block with new block size
 	* creates new block if sufficent memory remains */
 
-	char *request_start = (char *)block + block->size;
+	char *request_start = (char *)block + META_SIZE + size;
 	size_t request_offset = find_offset(request_start);
-	size_t free_mem = block->size - size;
+	ssize_t free_mem = block->size - size;
 	ssize_t request_size = free_mem - (META_SIZE + request_offset);
 
 	block->size = size;
@@ -277,6 +281,7 @@ static void insert_block(struct block_meta *block, size_t size)
 		new_block->prev = block;
 		new_block->offset = request_offset;
 		new_block->free = 1;
+		new_block->garbage = 0;
 
 		block->next->prev = new_block;
 		block->next = new_block;
@@ -301,16 +306,18 @@ static int append_block(size_t size)
 	* returns 1 otherwise (block appended successfully) */
 
 	char *request_start = (char *) tail_block;
-	request_start += META_SIZE + tail_block->size;
+	request_start += META_SIZE + tail_block->size + tail_block->garbage;
 	size_t request_offset = find_offset(request_start);
+	ssize_t rem_mem = segment_free - (request_offset + META_SIZE + size);
 
-	if ((segment_free - (request_offset + META_SIZE + size)) < 0)
+	if (rem_mem < 0)
 	{
 		return 0;
 	}
 
 	request_start += request_offset;
 	struct block_meta *new_block = (struct block_meta *) request_start;
+	new_block->size = size;
 	new_block->next = NULL;
 	new_block->prev = tail_block;
 	new_block->offset = request_offset; 

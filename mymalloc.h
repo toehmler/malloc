@@ -22,10 +22,10 @@ struct block_meta
     int free;     // (free = 1) : block is free
 };
 
-#define SEGMENT_SIZE 1024
+#define SEGMENT_SIZE 2048
 #define META_SIZE sizeof(struct block_meta)
 #define ALIGNMENT 16
-#define MIN_SEGMENT_SIZE 64
+#define MIN_SEGMENT_SIZE 0
 
 static struct block_meta *head_block = NULL;
 static struct block_meta *tail_block = NULL;
