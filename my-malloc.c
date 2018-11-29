@@ -9,26 +9,29 @@
 
 void *malloc(size_t size)
 {
+	/* initializes head block /
+	 * checks for free blocks, calls replace_free()
+	 * if neccesary calls append_block() */
+	struct block_meta *ret_block;
 
 	if (!size) // size = 0
 	{
 		return NULL;
 	}
-
 	if (!head_block) // first call
 	{
-		
-		// init head_block to current location or prog break
+		//init head_block to current location of break
 		char *start = sbrk(0);
 		size_t head_offset = find_offset(start);
 
-		if (!extend_segment(size + head_offset))
+		if (!extend_segment(size + META_SIZE + head_offset))
 		{
-			return NULL; // sbrk error
+			return NULL; //sbrk error
 		}
-
-		// init head_block
-		head_block = (struct block_meta *)(start + head_offset);
+		
+		// init head_block fields
+		start += head_offset;
+		head_block = (struct block_meta *)(start);
 		head_block->size = size;
 		head_block->next = NULL;
 		head_block->prev = NULL;
@@ -38,281 +41,143 @@ void *malloc(size_t size)
 
 		tail_block = head_block;
 
-		segment_free -= head_offset + META_SIZE + size;
+		segment_free -= (head_offset + META_SIZE + size);
 
-		return head_block + 1;
+		ret_block = head_block;
 	}
 
-	struct block_meta *free_block = find_free(size);
-
-	if (free_block)
+	// look for free blocks 
+	ret_block = find_free(size);
+	if (ret_block)
 	{
-		insert_block(free_block, size);
-		return free_block + 1;
+		replace_free(ret_block, size);
 	}
-
-	if (!append_block(size))
+	else // otherwise append to list of allocations
 	{
-		char *request_start = (char *)tail_block + META_SIZE + tail_block->size;
-		size_t new_offset = find_offset(request_start);
-
-		if (!extend_segment(size + new_offset))
+		ret_block = append_block(size);
+		if (!ret_block) 
 		{
-			return NULL; //sbrk error
+			return NULL;
 		}
-
-		append_block(size);
-		segment_free -= new_offset + META_SIZE + size;
 	}
-	return tail_block + 1;
+	ret_block += 1;
+	return (void *)ret_block;
 }
 
-
-void free(void *ptr) 
+void free(void *ptr)
 {
+	/* sets meta free flag to 1
+	 * adds any garbage in allocation to its size
+	 * reduces garbage count for block to 0 */
 	if (!ptr)
 	{
 		return;
 	}
-	
-	struct block_meta *free_block = find_block(ptr);
+
+	struct block_meta *free_block = ptr_to_block(ptr);
 	free_block->free = 1;
 	free_block->size += free_block->garbage;
 	free_block->garbage = 0;
-
-	struct block_meta *next_block = free_block->next;
-	struct block_meta *prev_block = free_block->prev;
-
-	if (next_block && next_block->free)
-	{
-		merge_free_blocks(free_block, next_block);
-	}
 	
-	if (prev_block && prev_block->free)
+	/*
+	if (free_block->next->free)
 	{
-		merge_free_blocks(prev_block, free_block);
+		merge_free(free_block);
 	}
+	if (free_block->prev->free)
+	{
+		merge_free(free_block->prev);
+	}
+	*/
+	
 }
-
 
 void *calloc(size_t nmemb, size_t size) 
 {
-	size_t total_size = nmemb * size;
+	/* calls malloc(nmemb * size) 
+	 * sets all addresses in allocation 0 */
+	if (!nmemb || !size)
+	{
+		return NULL;
+	}
+	size_t total_size = (nmemb * size);
 	void *block_ptr = malloc(total_size);
-	memset(block_ptr, 0, total_size); // need to check that block_ptr != null
+	memset(block_ptr, 0, total_size);
 	return block_ptr;
 }
 
+
 void *realloc(void *ptr, size_t size)
 {
+	/* changes size of allocation pointed to by ptr
+	 * if large allocation size:
+	 * checks for room in garbage to extend
+	 * checks for free blocks and copies data if found
+	 * otherwise calls malloc for new size and frees old block */
 
-	if (!ptr) 
-	{
-		return malloc(size);
-	}
-
+	struct block_meta *block = ptr_to_block(ptr);
+	
 	if (!size && ptr)
 	{
 		free(ptr);
-		return ptr;
+		return NULL;	
 	}
-	
-	struct block_meta *block = find_block(ptr);
-	ssize_t diff = block->size - size;
-	
-	if (diff > 0) // smaller allocation size
+	if (!ptr)
 	{
-		char *request_start = (char *) ptr + size;
-		size_t request_offset = find_offset(request_start);
-		diff += block->garbage;
+		return malloc(size);
+	}
+	if (size < block->size)
+	{
+		block->garbage += (block->size - size);
 		block->size = size;
-		ssize_t new_size = diff - (request_offset + META_SIZE);
-
-		if (new_size >= MIN_SEGMENT_SIZE)
-		{
-			insert_free_block((size_t) new_size, block);
-			block->garbage = 0;
-		} 
-		else 
-		{
-			block->garbage = diff;
-		}
-		
-		return block + 1;
+		return (void *)(block + 1);
 	}
-	else if (diff < 0) // larger allocation size
+	if (size > block->size)
 	{
-		// check for space in garbage 
-		if ((block->size + block->garbage) >= size)
+		if ((block->garbage + block->size) >= size)
 		{
-			block->garbage -= size - block->size;
+			block->garbage = ((block->garbage + block->size) - size);
 			block->size = size;
-			return block + 1;
+			return (void *)(block + 1);
 		}
-
-		// check for tail_block 
-		if (block == tail_block)
-		{
-			if (segment_free >= (size - block->size))
-			{
-				segment_free -= (size - block->size);
-				block->size = size;
-				return block + 1;
-			}
-		}
-
-		struct block_meta *next_block = block->next;
-		
-		// check if next free
-		if (next_block->free)
-		{
-			size_t next_size = next_block->size;
-			next_size += META_SIZE + next_block->offset + next_block->garbage;
-			size_t total_size = block->size + block->garbage + next_size;
-
-			if (total_size >= size)
-			{
-				block->size = size;
-				char *request_start = (char *) ptr + size;
-				size_t request_offset = find_offset(request_start);
-				ssize_t rem_mem = total_size - (size + request_offset + META_SIZE);
-
-				if (rem_mem >= MIN_SEGMENT_SIZE)
-				{
-					insert_free_block((size_t) rem_mem, block);
-					block->garbage = 0;
-				} 
-				else 
-				{
-					block->garbage = total_size - size;
-				}
-
-				return block + 1;
-			}
-		}
-
-		// check for exisitng free blocks
-		struct block_meta *free_block = find_free(size);
-		if (free_block) 
-		{
-			insert_block(free_block, size);
-			memcpy(ptr, free_block + 1, block->size);
-			free(ptr);
-			return free_block + 1;
-		}
-
 		void *ret_ptr = malloc(size);
-		memcpy(ptr, ret_ptr, block->size);
+		if (!ret_ptr) 
+		{
+			return NULL;
+		}
+		memcpy(ret_ptr, ptr, block->size);
 		free(ptr);
 		return ret_ptr;
 	}
 	return ptr;
-
 }
 
-/* ---------- HELPERS ---------- */
-
-static size_t find_offset(char *start)
+/*
+static void merge_free(struct block_meta *block)
 {
-	/* find size of offset (in bytes) for a block */
-	size_t offset = ALIGNMENT - ((intptr_t)(start + META_SIZE) % ALIGNMENT);
-	if (offset == 16)
-	{
-		return 0;
-	}
-	return offset;
+	block->size += (block->next->offset + META_SIZE + block->next->size);
+	struct block_meta *next_block = block->next->next;
+	next_block->prev = block;
+	block->next = next_block;
+	test_merge();
 }
+*/
 
-static int extend_segment(size_t size)
+static struct block_meta *append_block(size_t size)
 {
-	/* incrase size of data segment to fit new block size
-	* returns 1 on success
-	* returns NULL on sbrk error */
+	/* appends a block to the end fo the list
+	 * extends segment if neccesary by calling extend_segment */
 
-	int factor = ((size - segment_free) / SEGMENT_SIZE) + 1;
-	void *request_break;
-
-	for (int i = factor; i > 0; i--)
-	{
-		request_break = sbrk(SEGMENT_SIZE);
-		if (request_break == (void *) -1)
-		{
-			return 0; //sbrk error
-		}
-		segment_free += SEGMENT_SIZE;
-	}
-
-	return 1;
-}
-
-static struct block_meta *find_free(size_t size)
-{
-	/* searches for freed block of large enough size
-	* returns ptr to block if found
-	* returns NULL otherwise */
-
-	struct block_meta *current = head_block;
-	while (current && !(current->free && current->size >= size))
-	{
-		current = current->next;
-	}
-	return current;
-}
-
-static void insert_block(struct block_meta *block, size_t size)
-{
-	/* replaces freed block with new block size
-	* creates new block if sufficent memory remains */
-
-	char *request_start = (char *)block + META_SIZE + size;
+	char *request_start = (char *)tail_block + META_SIZE;
+	request_start += (tail_block->size + tail_block->garbage);
 	size_t request_offset = find_offset(request_start);
-	ssize_t free_mem = block->size - size;
-	ssize_t request_size = free_mem - (META_SIZE + request_offset);
-
-	block->size = size;
-	block->free = 0;
-
-	if (request_size >= MIN_SEGMENT_SIZE)
-	{
-		request_start += request_offset;
-		struct block_meta *new_block = (struct block_meta *) request_start;
-		new_block->size = (size_t)request_size;
-		new_block->next = block->next;
-		new_block->prev = block;
-		new_block->offset = request_offset;
-		new_block->free = 1;
-		new_block->garbage = 0;
-
-		block->next->prev = new_block;
-		block->next = new_block;
-		block->garbage = 0;
-
-		if (new_block->next->free)
-		{
-			merge_free_blocks(new_block, new_block->next);
-		}
-	}
-	else 
-	{
-		block->garbage = free_mem;
-	}
 	
-}
-
-static int append_block(size_t size)
-{
-	/* appends a new block to end of list
-	* returns 0 if insufficent segment memory
-	* returns 1 otherwise (block appended successfully) */
-
-	char *request_start = (char *) tail_block;
-	request_start += META_SIZE + tail_block->size + tail_block->garbage;
-	size_t request_offset = find_offset(request_start);
-	ssize_t rem_mem = segment_free - (request_offset + META_SIZE + size);
-
-	if (rem_mem < 0)
+	if (segment_free < (request_offset + META_SIZE + size))
 	{
-		return 0;
+		if (!extend_segment(request_offset + META_SIZE + size))
+		{
+			return NULL; //sbrk error
+		}
 	}
 
 	request_start += request_offset;
@@ -327,56 +192,69 @@ static int append_block(size_t size)
 	tail_block->next = new_block;
 	tail_block = new_block;
 
-	segment_free -= request_offset + META_SIZE + size;
+	segment_free -= (request_offset + META_SIZE + size);
 
-	return 1;
+	return tail_block;
 }
 
-static struct block_meta *find_block(void *ptr)
+static int extend_segment(size_t size)
 {
-	/* returns block associated with particular offset 
-	 * returns NULL if no block found ? */
-
-	char *found_start = (char *) ptr - META_SIZE;
-	struct block_meta *found_block = (struct block_meta *) found_start;
-	return found_block;
-}
-
-
-static void merge_free_blocks(struct block_meta *first, struct block_meta *second)
-{
-	/* combines two free neighbors into single contigous block */
-
-	struct block_meta *next_block = second->next;
-	
-	next_block->prev = first;
-	first->next = next_block;
-
-	first->size += second->offset + META_SIZE + second->size;
-}
-
-static void insert_free_block(size_t size, struct block_meta *block)
-{
-
-	char *start = (char *) block + META_SIZE + block->size;
-	size_t offset = find_offset(start);
-	struct block_meta *new_free = (struct block_meta *)(start + offset);
-	
-	new_free->size = size;
-	new_free->next = block->next;
-	new_free->prev = block;
-	new_free->offset = offset;
-	new_free->free = 1;
-	new_free->garbage = 0;
-
-	block->next->prev = new_free;
-	block->next = new_free;
-	
-	if (new_free->next->free)
+	/* incrase size of data segment to fit new block size
+	* returns 1 on success
+	* returns NULL on sbrk error */
+	void *request_break;
+	while (segment_free < size)
 	{
-		merge_free_blocks(new_free, new_free->next);
+		request_break = sbrk(SEGMENT_SIZE);
+		if (request_break == (void *) -1)
+		{
+			return 0;
+		}
+		segment_free += SEGMENT_SIZE;
 	}
+	return 1;
+	
+
+}
 
 
+static void replace_free(struct block_meta *free_block, size_t size)
+{
+	/* replace a free block with an allocation of new size
+	 * set garbage of block to difference between old - new sizes */
+	free_block->garbage = free_block->size - size;
+	free_block->size = size;
+	free_block->free = 0;
+}
+
+
+static struct block_meta *find_free(size_t size)
+{
+	/* searches for freed block of large enough size
+	* returns ptr to block if found
+	* returns NULL otherwise */
+	struct block_meta *current = head_block;
+	while (current && !(current->free && current->size >= size))
+	{
+		current = current->next;
+	}
+	return current;
+}
+
+static struct block_meta *ptr_to_block(void *ptr)
+{
+	/* perform pointer arithmetic to return block_meta ptr */
+	return ((struct block_meta*)ptr) - 1;
+}
+
+static size_t find_offset(char *start)
+{
+	/* calculate offset in bytes for start of block to align memory */
+	size_t offset = ALIGNMENT - ((intptr_t)(start + META_SIZE) % ALIGNMENT);
+	if (offset == 16)
+	{
+		return 0;
+	}
+	return offset;
 }
 
