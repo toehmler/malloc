@@ -79,16 +79,8 @@ void free(void *ptr)
 	free_block->size += free_block->garbage;
 	free_block->garbage = 0;
 	
-	/*
-	if (free_block->next->free)
-	{
-		merge_free(free_block);
-	}
-	if (free_block->prev->free)
-	{
-		merge_free(free_block->prev);
-	}
-	*/
+	
+	
 	
 }
 
@@ -151,17 +143,6 @@ void *realloc(void *ptr, size_t size)
 	}
 	return ptr;
 }
-
-/*
-static void merge_free(struct block_meta *block)
-{
-	block->size += (block->next->offset + META_SIZE + block->next->size);
-	struct block_meta *next_block = block->next->next;
-	next_block->prev = block;
-	block->next = next_block;
-	test_merge();
-}
-*/
 
 static struct block_meta *append_block(size_t size)
 {
@@ -257,4 +238,5 @@ static size_t find_offset(char *start)
 	}
 	return offset;
 }
+
 

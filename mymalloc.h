@@ -1,3 +1,8 @@
+/* 
+ * mymalloc.h
+ * Trey Oehmler
+ * CS315 Assignment 3 Fall 2018
+ */
 
 #ifndef __MYMALLOC_H
 #define __MYMALLOC_H
@@ -27,13 +32,11 @@ void free(void *ptr);
 void *calloc(size_t nmemb, size_t size);
 void *realloc(void *ptr, size_t size);
 
-
 static struct block_meta *append_block(size_t size);
 static int extend_segment(size_t size);
 static void replace_free(struct block_meta *free_block, size_t size);
 static struct block_meta *find_free(size_t size);
 static struct block_meta *ptr_to_block(void *ptr);
 static size_t find_offset(char *start);
-
-
+ 
 #endif
