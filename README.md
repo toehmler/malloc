@@ -1,4 +1,4 @@
-# myls | Assignment 3
+# my-malloc | Assignment 3
 
 ## Authors
 Trey Oehmler 
